@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xrandr.h>
 #include <cairo/cairo.h>
 #include <omp.h>
 #include "lodepng/lodepng.h"
@@ -110,6 +111,13 @@ void darken(unsigned char *dest, unsigned char *src, int height, int width)
     }
 }
 
+typedef struct screenInfo {
+    int width;
+    int height;
+    int x;
+    int y;
+} screenInfo;
+
 int main(int argc, char *argv[])
 {
     if (argc < 6) {
@@ -118,6 +126,32 @@ int main(int argc, char *argv[])
     }
     Display *display = XOpenDisplay(NULL);
     Window root = XDefaultRootWindow(display);
+
+    XRRScreenResources* resources = XRRGetScreenResources(display, root);
+    int screenCount = resources->noutput;
+
+    screenInfo* screens = malloc(sizeof(screenInfo) * screenCount);
+    int nscreens = -1;
+
+    for (int i = 0; i < screenCount; i++)
+    {
+        XRROutputInfo* outputInfo = XRRGetOutputInfo(display, resources, resources->outputs[i]);
+        if(outputInfo->connection != 0)
+            continue;
+        
+        nscreens++;
+        XRRCrtcInfo* crtcInfo = XRRGetCrtcInfo(display, resources, outputInfo->crtc);
+
+        screens[nscreens].width = crtcInfo->width;
+        screens[nscreens].height = crtcInfo->height;
+        screens[nscreens].x = crtcInfo->x;
+        screens[nscreens].y = crtcInfo->y;
+
+        XRRFreeOutputInfo(outputInfo);
+        XRRFreeCrtcInfo(crtcInfo);
+    }
+    XRRFreeScreenResources(resources);
+
     XWindowAttributes gwa;
     XGetWindowAttributes(display, root, &gwa);
     int height = gwa.height;
@@ -157,10 +191,13 @@ int main(int argc, char *argv[])
     cairo_text_extents_t extents;
     cairo_text_extents(cairo, argv[3], &extents);
 
-    cairo_move_to(cairo, (1920 / 2) - (extents.width / 2), (1080 / 2));
-    cairo_show_text(cairo, argv[3]);
-    postDarken = cairo_image_surface_get_data(surface);
+    for(int i = 0; i <= nscreens; i++)
+    {
+        cairo_move_to(cairo, screens[i].x + (screens[i].width / 2) - (extents.width / 2), (screens[i].height / 2));
+        cairo_show_text(cairo, argv[3]);
+    }
 
+    postDarken = cairo_image_surface_get_data(surface);
     cairo_surface_destroy(surface);
     cairo_destroy(cairo);
     

@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-c -O3 -fopenmp -DLODEPNG_NO_COMPILE_DECODER -DLODEPNG_NO_COMPILE_DISK -DLODEPNG_NO_COMPILE_ANCILLARY_CHUNKS -DLODEPNG_NO_COMPILE_ERROR_TEXT -I/usr/include/cairo -Wall -Wextra
-LDFLAGS=-lX11 -lcairo -fopenmp
+LDFLAGS=-lX11 -lXrandr -lcairo -fopenmp
 DEPS=lodepng/lodepng.h
 
 i3lock-fancy-rapid: i3lock-fancy-rapid.o lodepng.o
