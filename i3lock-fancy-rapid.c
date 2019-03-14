@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <cairo/cairo.h>
 #include <omp.h>
 #include "lodepng/lodepng.h"
 
@@ -93,10 +94,26 @@ void box_blur(unsigned char *dest, unsigned char *src, int height, int width,
 
 }
 
+void darken(unsigned char *dest, unsigned char *src, int height, int width)
+{
+    #pragma omp parallel for
+    for (int i = 0; i < height; ++i) {
+        int iWidth = i * width;
+        for (int j = 0; j < width; ++j) {
+            int index = (iWidth + j) * 4;
+            int smallIndex = (iWidth + j) * 3;
+            dest[index] = src[smallIndex] * 0.5;
+            dest[index + 1] = src[smallIndex + 1] * 0.5;
+            dest[index + 2] = src[smallIndex + 2] * 0.5;
+            dest[index + 3] = 255;
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
-    if (argc < 3) {
-        fprintf(stderr, "usage: %s radius times [OPTIONS]\n", argv[0]);
+    if (argc < 6) {
+        fprintf(stderr, "usage: %s radius times text font fontsize [OPTIONS]\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     Display *display = XOpenDisplay(NULL);
@@ -121,17 +138,40 @@ int main(int argc, char *argv[])
     XDestroyImage(image);
     XDestroyWindow(display, root);
     XCloseDisplay(display);
+
     unsigned char *postblur = malloc(height * width * 3);
     box_blur(postblur, preblur, height, width, atoi(argv[1]), atoi(argv[2]));
     free(preblur);
+
+    unsigned char *postDarken = malloc(height * width * 4);
+    darken(postDarken, postblur, height, width);
+    free(postblur);
+
+    int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, width);
+    cairo_surface_t* surface = cairo_image_surface_create_for_data(postDarken, CAIRO_FORMAT_RGB24, width, height, stride);
+    cairo_t* cairo = cairo_create(surface);
+    cairo_set_source_rgb(cairo, 1, 1, 1);
+    cairo_select_font_face(cairo, argv[4], CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cairo, atoi(argv[5]));
+
+    cairo_text_extents_t extents;
+    cairo_text_extents(cairo, argv[3], &extents);
+
+    cairo_move_to(cairo, (1920 / 2) - (extents.width / 2), (1080 / 2));
+    cairo_show_text(cairo, argv[3]);
+    postDarken = cairo_image_surface_get_data(surface);
+
+    cairo_surface_destroy(surface);
+    cairo_destroy(cairo);
+    
     LodePNGState state;
     lodepng_state_init(&state);
-    state.info_raw.colortype = LCT_RGB;
+    state.info_raw.colortype = LCT_RGBA;
     state.encoder.zlibsettings.btype = 0;
     unsigned char *data;
     size_t data_len;
-    lodepng_encode(&data, &data_len, postblur, width, height, &state);
-    free(postblur);
+    lodepng_encode(&data, &data_len, postDarken, width, height, &state);
+    free(postDarken);
     lodepng_state_cleanup(&state);
     char filename[] = "/tmp/tmp.XXXXXX.png";
     int fd = mkstemps(filename, 4);
